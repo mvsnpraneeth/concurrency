@@ -14,193 +14,114 @@ class Pair<T1,T2>
     T2 getVal(){return val;}
 }
 
-class ParallelHash
+class ParallelHash<T1,T2>
 {
-    ArrayList<Pair<Object,Object>> buck = new ArrayList<>();
+    List<LinkedList<Pair<T1,T2>>> buck = new ArrayList<LinkedList<Pair<T1,T2>>>();
     int hashSize = 2,curSize=0;
+    Object[] locks = new Object[hashSize];
 
     ParallelHash(int hsize)
     {
         hashSize = hsize;
-        for(int i=1;i<=hashSize;i++)
+        for(int i=0;i<hashSize;i++)
+        {
+            locks[i] = new Object();
             buck.add(null);
+        }
     }
+
     public void doubleit()
     {
         for (int i = 1; i <= hashSize; i++)
             buck.add(null);
         hashSize *= 2;
+        locks = new Object[hashSize];
     }
 
-    public void put(Object k,Object v)
+    public void put(T1 k,T2 v)
     {
-        Pair<Object,Object> t = new Pair<>(k,v);
         int hval = (k.hashCode()) % hashSize;
         if(buck.get(hval)==null)
         {
+            synchronized (locks[hval])
+            {
+                LinkedList<Pair<T1,T2>> t = new LinkedList<Pair<T1,T2>>();
+                t.add(new Pair<T1,T2>(k,v));
+                buck.set(hval, t);
+            }
             synchronized (this)
             {
-                buck.set(hval, t);
                 curSize++;
-                 if(curSize==hashSize)
-                     doubleit();
             }
         }
         else
         {
-            boolean fnd = false;
-            for(int i=hval+1; i<hashSize; i++)
+            synchronized (locks[hval])
             {
-                if(buck.get(i)==null)
-                {
-                    synchronized (this)
-                    {
-                        buck.set(i, t);
-                        fnd = true;
-                        curSize++;
-                        if(curSize==hashSize)
-                            doubleit();
-                    }
-
-                    break;
-                }
+                buck.get(hval).add(new Pair<T1,T2>(k,v));
             }
-            if(!fnd)
+            synchronized (this)
             {
-                for(int i=0; i<hval; i++)
-                {
-                    if(buck.get(i)==null)
-                    {
-                        synchronized (this)
-                        {
-                            buck.set(i,t);
-                            fnd = true;
-                            curSize++;
-                            if(curSize==hashSize)
-                                doubleit();
-                        }
-                        break;
-                    }
-                }
-                if(!fnd)
-                {
-                    put(k,v);
-                }
+                curSize++;
             }
         }
     }
 
-    public Object get(Object k)
+    public Object get(T1 k)
     {
         int hval = (k.hashCode()) % hashSize ;
         if(buck.get(hval)!=null)
         {
-            if(buck.get(hval).getKey().equals(k))
+
+            synchronized (locks[hval])
             {
-                synchronized (this)
+                for(Pair<T1,T2> p:buck.get(hval))
                 {
-                    return  buck.get(hval).getVal();
+                    if(p.getKey().equals(k))
+                        return p.getVal();
                 }
             }
-        }
-        else
-        {
-             for(int i=hval+1; i<hashSize; i++)
-             {
-                 if(buck.get(i)!=null)
-                 {
-                      if(buck.get(i).getKey().equals(k))
-                      {
-                          synchronized (this)
-                          {
-                              return  buck.get(i).getVal();
-                          }
-                      }
-
-                 }
-             }
-             for(int i=0; i<hval; i++)
-             {
-                  if(buck.get(i)!=null)
-                  {
-                       if(buck.get(i).getKey().equals(k))
-                       {
-                           synchronized (this)
-                           {
-                               return  buck.get(i).getVal();
-                           }
-                       }
-
-                  }
-
-             }
         }
         return null;
     }
 
-    public boolean remove(Object k)
+    public boolean remove(T1 k)
     {
-        int hval = (k.hashCode()) % hashSize ;
+        boolean fnd=false;
+        int hval = (k.hashCode()) % hashSize;
         if(buck.get(hval)!=null)
         {
-            if (buck.get(hval).getKey().equals(k)) {
-                synchronized (this) {
-                    if (buck.get(hval) != null) {
-                        buck.set(hval, null);
-                        curSize--;
-                        return true;
+            synchronized (locks[hval])
+            {
+                for(int i=0;i<buck.get(hval).size();i++)
+                {
+                    if(buck.get(hval).get(i).getKey().equals(k))
+                    {
+                        fnd=true;
+                        buck.get(hval).remove(i);
+                        break;
                     }
                 }
 
             }
         }
-        else
+        if(fnd)
         {
-                     for(int i=hval+1; i<hashSize; i++)
-                     {
-                         if(buck.get(i)!=null)
-                         {
-                              if(buck.get(i).getKey().equals(k))
-                              {
-                                  synchronized (this)
-                                  {
-                                      if (buck.get(i) != null) {
-                                          buck.set(i, null);
-                                          curSize--;
-                                          return true;
-                                      }
-                                  }
-                              }
-
-                         }
-                     }
-                     for(int i=0; i<hval; i++)
-                     {
-                          if(buck.get(i)!=null)
-                          {
-                               if(buck.get(i).getKey().equals(k))
-                               {
-                                   synchronized (this)
-                                   {
-                                       if (buck.get(i) != null) {
-                                           buck.set(i, null);
-                                           curSize--;
-                                           return true;
-                                       }
-                                   }
-                               }
-
-                          }
-
-                     }
+            synchronized (this){
+                curSize--;
+            }
         }
-
-        return false;
+        return fnd;
     }
+
 
     public int getSize()
     {
-        return curSize;
+        synchronized(this)
+        {
+            return curSize;
+        }
+
     }
 
     public static void main(String[] arg)
@@ -219,10 +140,16 @@ class ParallelHash
         Thread t1 =new Thread(m);
         Thread t2 =new Thread(m);
         t1.start();t2.start();
-        while(t1.isAlive() || t2.isAlive()){}
+        try{
 
+            t1.join();t2.join();
+        }
+        catch(Exception ex)
+        {
+            System.out.println("Join error");
+        }
+//        while(t1.isAlive() || t2.isAlive()){}
         System.out.println("size is "+h.getSize());
-        //System.out.println("hashsize is "+h.hashSize);
     }
 }
 class Multi implements Runnable
