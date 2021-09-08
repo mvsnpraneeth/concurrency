@@ -18,24 +18,51 @@ class ParallelHash<T1,T2>
 {
     List<LinkedList<Pair<T1,T2>>> buck = new ArrayList<LinkedList<Pair<T1,T2>>>();
     int hashSize = 2,curSize=0;
-    Object[] locks = new Object[hashSize];
+    int THRESH = 4;
+//    Object[] locks = new Object[hashSize];
 
     ParallelHash(int hsize)
     {
         hashSize = hsize;
         for(int i=0;i<hashSize;i++)
         {
-            locks[i] = new Object();
+//            locks[i] = new Object();
             buck.add(null);
         }
     }
 
     public void doubleit()
     {
-        for (int i = 1; i <= hashSize; i++)
+        List<LinkedList<Pair<T1,T2>>> oldbuck = buck;
+        List<LinkedList<Pair<T1,T2>>> newbuck = new ArrayList<LinkedList<Pair<T1,T2>>>();
+        buck = newbuck;
+        hashSize*=2;THRESH*=2;
+        for(int i=0;i<hashSize;i++)
+        {
             buck.add(null);
-        hashSize *= 2;
-        locks = new Object[hashSize];
+        }
+        for(int i=0;i<hashSize/2;i++)
+        {
+            for(Pair<T1,T2> p:oldbuck.get(i))
+            {
+                T1 k = p.getKey();
+                T2 v = p.getVal();
+                int hval = (k.hashCode()) % hashSize;  
+                if(buck.get(hval)==null)
+                {
+                    LinkedList<Pair<T1,T2>> t = new LinkedList<Pair<T1,T2>>();
+                    t.add(new Pair<T1,T2>(k,v));
+                    buck.set(hval, t);
+                }
+                else
+                {
+                    synchronized (buck.get(hval))
+                    {
+                        buck.get(hval).add(new Pair<T1, T2>(k, v));
+                    }
+                }
+            }
+        }
     }
 
     public void put(T1 k,T2 v)
@@ -43,20 +70,32 @@ class ParallelHash<T1,T2>
         int hval = (k.hashCode()) % hashSize;
         if(buck.get(hval)==null)
         {
-            synchronized (locks[hval])
+            synchronized (buck)
             {
                 LinkedList<Pair<T1,T2>> t = new LinkedList<Pair<T1,T2>>();
                 t.add(new Pair<T1,T2>(k,v));
-                buck.set(hval, t);
+                if(buck.get(hval)==null)
+                    buck.set(hval, t);
+                else
+                    buck.get(hval).add(new Pair<T1,T2>(k,v));
             }
             synchronized (this)
             {
                 curSize++;
             }
+            synchronized(buck)
+            {
+                if(curSize>=THRESH)
+                {
+                    doubleit();
+                }
+
+            }
+
         }
         else
         {
-            synchronized (locks[hval])
+            synchronized (buck.get(hval))
             {
                 buck.get(hval).add(new Pair<T1,T2>(k,v));
             }
@@ -64,17 +103,26 @@ class ParallelHash<T1,T2>
             {
                 curSize++;
             }
+            synchronized(buck)
+            {
+                if(curSize>=THRESH)
+                {
+                    doubleit();
+                }    
+            }
+            
         }
     }
 
-    public Object get(T1 k)
+    public T2 get(T1 k)
     {
         int hval = (k.hashCode()) % hashSize ;
         if(buck.get(hval)!=null)
         {
 
-            synchronized (locks[hval])
+            synchronized (buck.get(hval))
             {
+                if(buck.get(hval)!=null)
                 for(Pair<T1,T2> p:buck.get(hval))
                 {
                     if(p.getKey().equals(k))
@@ -91,8 +139,9 @@ class ParallelHash<T1,T2>
         int hval = (k.hashCode()) % hashSize;
         if(buck.get(hval)!=null)
         {
-            synchronized (locks[hval])
+            synchronized (buck.get(hval))
             {
+                if(buck.get(hval)!=null)
                 for(int i=0;i<buck.get(hval).size();i++)
                 {
                     if(buck.get(hval).get(i).getKey().equals(k))
@@ -148,8 +197,8 @@ class ParallelHash<T1,T2>
         {
             System.out.println("Join error");
         }
-//        while(t1.isAlive() || t2.isAlive()){}
         System.out.println("size is "+h.getSize());
+        System.out.println("E value: "+h.get("e"));
     }
 }
 class Multi implements Runnable
